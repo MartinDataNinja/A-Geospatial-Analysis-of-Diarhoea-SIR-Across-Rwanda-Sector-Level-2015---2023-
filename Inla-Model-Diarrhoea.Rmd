@@ -1,0 +1,340 @@
+---
+title: "A Geospatial Analysis of Diarrhoea Standardized Incidence Ratio (SIR) Across Rwanda: Sector Level [2015 - 2023]"
+author: "Mr. Martin HABIMANA"
+date: "2024-11-28"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Required Libraries
+
+```{r, warning=FALSE}
+library(writexl)
+library(readxl)
+library(dplyr)
+library(sf)
+library(tidyr)
+library(ggplot2)
+library(stringr)
+```
+### Data Manuplation
+
+Loading the Diarrhoea dataset
+
+```{r,warning=FALSE}
+data<-read_xlsx("C:/Users/GK TECH/Downloads/Diarrhea Cases(2015-2024)_Population.xlsx")
+head(data)
+
+```
+
+
+```{r,warning=FALSE}
+Diarrhoea_by_sector <- data %>%
+  group_by(Country,District,Sector,periodname,Population,Year) %>%
+  summarize(Diarrhoea_Cases = sum(Diarrhoea_Cases, na.rm = TRUE))
+
+Diarrhoea_by_sector <-Diarrhoea_by_sector %>% filter(Year != 2024)
+head(Diarrhoea_by_sector)
+
+write_xlsx(Diarrhoea_by_sector,"C:/Users/GK TECH/Downloads/Diarrhoea_by_sector.xlsx")
+```
+
+
+```{r,warning=FALSE}
+Diarrhoea_data<-Diarrhoea_by_sector%>% group_by(Country,District,Sector,Year,Population)%>%
+  summarize(Diarrhoea_Cases = sum(Diarrhoea_Cases, na.rm = TRUE))
+head(Diarrhoea_data)
+
+```
+
+```{r,warning=FALSE}
+Diarrhoea_data <- data %>%
+  mutate(Sector = str_to_title(Sector))
+
+Diarrhoea_data <- Diarrhoea_data %>%
+  mutate(Sector = str_replace(Sector, "\\s*\\([^\\)]+\\)", ""))
+head(Diarrhoea_data)
+```
+```{r}
+diarrhoea_data_fixed <- Diarrhoea_data %>%
+  group_by( Country,District, periodname,Month,Sector, Year,Population) %>%
+  mutate(
+    Population = ifelse(
+      Month == 2 & (Year == 2016 | Year == 2020), 
+      Population[Month == 1 & Year == Year], 
+      Population
+    )
+  ) %>%
+  ungroup()
+write_xlsx(diarrhoea_data_fixed,"C:/Users/GK TECH/Downloads/Diarrhoea_Population_Corrected.xlsx")
+```
+
+
+### Introduction of The Standardized Incidence Ratio (SIR)
+
+SIR is a measure used to compare the observed number of cases in a specific area or group to the expected number of cases based on a standard population. In this example, we calculate the SIR for Diarrhoea Cases in different Sectors and Years.
+
+### Calculate the Standardized Rate - r(s) 
+
+To calculate the SIR, we first need to compute the overall rate of Diarrhoea Cases in the population. The rate is the total number of cases divided by the total population:
+
+\[
+r(s) = \frac{\text{Total Diarrhoea Cases}}{\text{Total Population in all periods}}
+\]
+
+We will then compute this rate based on all the Diarrhea data.
+
+
+```{r,warning=FALSE}
+total_cases <- sum(Diarrhoea_data$Diarrhoea_Cases)
+total_population <- sum(Diarrhoea_data$Population)
+
+r_s <- total_cases / total_population
+print(paste("The overall Standardized Rate (r(s)) is:", round(r_s, 6)))
+```
+
+Standardized rate by Year
+
+```{r}
+results_by_year <- Diarrhoea_data %>%
+  group_by(Year) %>%
+  summarize(
+    total_cases = sum(Diarrhoea_Cases, na.rm = TRUE),
+    total_population = sum(Population, na.rm = TRUE),
+    r_s = total_cases / total_population
+  )
+
+print(results_by_year)
+```
+
+
+### Calculate Expected Cases  E_i 
+
+For each sector-year combination, we calculate the Expected Cases (E)  based on the overall rate. The formula for expected cases is:
+
+\[
+E_i = r(s) \times n(i)
+\]
+
+Where:
+ r(s): is the overall rate (calculated earlier).
+n(i): is the population for a specific sector-year combination.\]
+
+Thus, for each sector and year, we calculate the expected number of cases using the above formula.
+
+```{r,warning=FALSE}
+Diarrhoea_data$Expected_Cases <- r_s * Diarrhoea_data$Population
+head(Diarrhoea_data)
+```
+
+```{r}
+Diarrhoea_data <- Diarrhoea_data %>%
+  group_by(Year) %>%
+  mutate(
+    r_s_year = sum(Diarrhoea_Cases, na.rm = TRUE) / sum(Population, na.rm = TRUE),
+    Expected_Cases = r_s_year * Population
+  )
+
+print(head(Diarrhoea_data))
+```
+
+### Calculate the Standardized Incidence Ratio
+
+\( SIR_i \)
+
+Once we have the expected cases, we can now calculate the Standardized Incidence Ratio (SIR) for each sector year. The formula for the SIR is:
+
+\[
+SIR_i = \frac{Y_i}{E_i}
+\]
+
+Where:
+   \( Y_i \) is the \textbf{Observed Cases} (Diarrhoea Cases).
+  \( E_i \) is the \textbf{Expected Cases} (calculated in the previous step).
+
+The SIR compares the observed and expected number of cases, where:
+
+\( SIR_i > 1 \) indicates higher than expected cases.
+\( SIR_i = 1 \) indicates cases as expected.
+\( SIR_i < 1 \) indicates lower than expected cases.
+
+```{r,warning=FALSE}
+Diarrhoea_data$SIR <- Diarrhoea_data$Diarrhoea_Cases / Diarrhoea_data$Expected_Cases
+head(data)
+```
+
+### Summary of the data
+
+```{r,warning=FALSE}
+summary(Diarrhoea_data)
+```
+
+Loading Shape file of map of Rwanda
+
+```{r,warning=FALSE}
+shapefile_path <- "C:/Users/GK TECH/Downloads/rwa_adm3_2006_NISR_WGS1984_20181002.shp"
+shapefile_data <- st_read(shapefile_path)
+
+shapefile_data <- shapefile_data %>%
+  mutate(ADM3_EN = case_when(
+    ADM3_EN == "Mageregere"~"Mageragere",
+    ADM3_EN == "Shyrongi" ~ "Shyorongi",
+    ADM3_EN == "Rilima" ~ "Ririma",
+    TRUE ~ ADM3_EN
+  ))
+```
+
+
+```{r,warning=FALSE}
+merged_data <- shapefile_data %>%
+  left_join(Diarrhoea_data, by = c("ADM3_EN" = "Sector", "ADM2_EN" = "District"))
+
+ggplot(merged_data) +
+  geom_sf(aes(fill = Diarrhoea_Cases)) +
+  scale_fill_viridis_c(
+    option = "plasma", 
+    limits = c(0, 10000) 
+  ) +
+  theme_minimal() +
+  labs(
+    title = "Spatial Distribution of Diarrhoea Cases by Sector (2015-2023)",
+    fill = "Cases"
+  )
+
+```
+
+### Top 30 Sectors with the Most Diarrhoea Cases in 2023
+
+In the year 2023, several sectors across Rwanda experienced varying levels of diarrhoea cases. The following bar plot highlights the top 10 sectors with the highest number of diarrhoea cases. These areas are of particular concern for public health interventions, as they indicate regions where health services and preventive measures may need to be strengthened.
+
+The plot displays the number of diarrhoea cases for each sector, with bars ordered by the number of cases. 
+
+```{r,warning=FALSE}
+data_2023_cases <- merged_data %>% filter(Year == 2023)
+
+top_10_cases_2023 <- data_2023_cases %>%
+  arrange(desc(Diarrhoea_Cases)) %>%
+  slice_head(n = 20)
+
+ggplot(top_10_cases_2023, aes(
+  x = reorder(paste(ADM3_EN, "-", ADM2_EN, sep = ""), Diarrhoea_Cases), 
+  y = Diarrhoea_Cases, 
+  fill = Diarrhoea_Cases)) +
+  geom_bar(stat = "identity", width = 0.7) + 
+  scale_fill_viridis_c(option = "plasma") +  
+  coord_flip() +  
+  theme_minimal() + 
+  theme(
+    axis.text.y = element_text(size = 10),  
+    plot.title = element_text(size = 14, face = "bold") 
+  ) +
+  labs(
+    title = "Top 30 Sectors with the Most Diarrhoea Cases in 2023",
+    x = "Sector - District",
+    y = "Diarrhoea Cases",
+    fill = "Cases"
+  )
+
+```
+
+### Diarrhoea Cases by Sector for Each Year
+
+The following set of maps visualizes the spatial distribution of diarrhoea cases across sectors in Rwanda for each year in [215-2023]. The maps show the number of diarrhoea cases, with colors indicating the severity of the cases. The color scale ranges from 0 to 10,000 cases, with a more intense color representing a higher number of cases.
+
+For each year, the map highlights areas with a higher burden of diarrhoea, which can assist in identifying trends over time and guiding public health interventions in the most affected sectors.
+
+```{r,warning=FALSE}
+
+merged_data <- shapefile_data %>%
+  left_join(Diarrhoea_data, by = c("ADM3_EN" = "Sector", "ADM2_EN" = "District"))
+
+unique_years <- unique(merged_data$Year)
+
+
+for (year in unique_years) {
+  data_year <- merged_data %>% filter(Year == year)
+  
+  plot <- ggplot(data_year) +
+    geom_sf(aes(fill = Diarrhoea_Cases)) +
+    scale_fill_viridis_c(
+      option = "plasma",
+      limits = c(0, 10000)
+    ) +
+    theme_minimal() +
+    labs(
+      title = paste("Diarrhoea Cases by Sector in", year),
+      fill = "Cases"
+    )
+  
+  print(plot)
+}
+```
+
+### Spatial Distribution of Standardized Incidence Ratio (SIR) of Diarrhoea across Sectors for Each Year
+
+The SIR is a measure that compares the observed cases of diarrhoea to the expected number of cases, with values greater than 1 indicating higher than expected cases. The color scale represents the SIR, where a higher value (colored more intensely) indicates a sector with a higher-than-expected number of diarrhoea cases.
+
+
+```{r,warning=FALSE}
+merged_data <- shapefile_data %>%
+  left_join(Diarrhoea_data, by = c("ADM3_EN" = "Sector", "ADM2_EN" = "District"))
+
+unique_years <- unique(merged_data$Year)
+
+
+for (year in unique_years) {
+  data_year <- merged_data %>% filter(Year == year)
+  
+  plot <- ggplot(data_year) +
+    geom_sf(aes(fill = SIR)) +
+    scale_fill_viridis_c(
+      option = "plasma",
+      limits = c(0,5)
+    ) +
+    theme_minimal() +
+    labs(
+      title = paste("Spatial Distribution of SIR across sectors", year),
+      fill = "SIR"
+    )
+print(plot)
+}
+```
+
+### Top 30 Sectors with the Highest Standardized Incidence Ratio (SIR) in 2023
+
+The following bar plot highlights the top 30 sectors in Rwanda with the highest Standardized Incidence Ratio (SIR) in the year 2023. The SIR is used to compare the observed cases of diarrhoea with the expected cases in each sector, with values greater than 1 indicating higher than expected cases. This plot helps to identify which areas experienced a disproportionately high number of diarrhoea cases in 2023.
+
+```{r,warning=FALSE}
+data_2023 <- merged_data %>% filter(Year == 2023)
+top_10_sir_2023 <- data_2023 %>%
+  arrange(desc(SIR)) %>%
+  slice_head(n = 30)
+
+ggplot(top_10_sir_2023, aes(
+  x = reorder(paste(ADM3_EN, " - ", ADM2_EN, sep = ""), SIR), 
+  y = SIR, 
+  fill = SIR)) +
+  geom_bar(stat = "identity", width = 0.7) +  
+  geom_text(aes(label = round(SIR, 2)), hjust = -0.01, size = 2.5) + 
+  scale_fill_viridis_c(option = "plasma") +  
+  coord_flip() +
+  theme_minimal() + 
+  theme(
+    axis.text.y = element_text(size = 10),
+    plot.title = element_text(size = 14, face = "bold")  
+  ) +
+  labs(
+    title = "Top 30 Sectors with the Highest SIR in 2023",
+    x = "Sector - District",
+    y = "Standardized Incidence Ratio (SIR)",
+    fill = "SIR"
+  )
+```
+
+
+
